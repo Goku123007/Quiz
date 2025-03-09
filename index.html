@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Technical Quiz</title>
+    <title>Quiz Host</title>
     <style>
         /* Base Styles */
         body {
@@ -138,6 +138,35 @@
             text-align: center;
         }
 
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(3px);
+        }
+
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         /* Mobile Styles */
         @media (max-width: 600px) {
             h1 {
@@ -166,8 +195,13 @@
     </style>
 </head>
 <body>
+    <!-- Loading Screen -->
+    <div class="loading-overlay" id="loading">
+        <div class="loading-spinner"></div>
+    </div>
+
     <div class="container">
-        <h1>Technical Quiz</h1>
+        <h1>Quiz Host</h1>
 
         <!-- Participant Details -->
         <div class="participant-details">
@@ -280,83 +314,80 @@
                 <label><input type="radio" name="q10" value="0"> The total mass of a closed system remains constant</label>
             </div>
         </div>
-        
+
         <button class="submit-btn" onclick="submitQuiz()">Submit Quiz</button>
         <div id="error-message" class="error"></div>
         <div id="submission-status" class="submission-status"></div>
     </div>
-    
-    <script>
-        // Block multiple submissions
-        window.onload = function() {
-            if (localStorage.getItem('quizSubmitted') === 'true') {
-                document.getElementById('submission-status').textContent = "You have already submitted the quiz.";
-                document.querySelector('.submit-btn').disabled = true;
-            }
-        };
 
+    <script>
         async function submitQuiz() {
-            const participantName = document.getElementById('participant-name').value.trim();
-            const collegeName = document.getElementById('college-name').value.trim();
+            const loadingOverlay = document.getElementById('loading');
+            const submitBtn = document.querySelector('.submit-btn');
             const errorDiv = document.getElementById('error-message');
             const statusDiv = document.getElementById('submission-status');
 
-            // Reset messages
-            errorDiv.textContent = "";
-            statusDiv.textContent = "";
-
-            // Validate fields
-            if (!participantName || !collegeName) {
-                errorDiv.textContent = "Please fill in both Participant Name and College Name.";
-                return;
-            }
-
-            // Check if already submitted
-            if (localStorage.getItem('quizSubmitted') === 'true') {
-                errorDiv.textContent = "You have already submitted the quiz.";
-                return;
-            }
-
-            // Validate all questions answered
-            const selectedOptions = document.querySelectorAll('input[type="radio"]:checked');
-            if (selectedOptions.length < 3) { // Update this number if you add/remove questions
-                errorDiv.textContent = "Please answer all questions.";
-                return;
-            }
-
-            // Calculate total points
-            let totalPoints = 0;
-            selectedOptions.forEach(option => {
-                totalPoints += parseInt(option.value);
-            });
-
-            // Send data to SheetDB
             try {
-                const response = await fetch('https://sheetdb.io/api/v1/cimi40ommr2mv', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        data: [{
-                            Name: participantName,
-                            College: collegeName,
-                            "Total Points": totalPoints
-                        }]
-                    }),
+                // Show loading overlay
+                loadingOverlay.style.display = 'flex';
+                submitBtn.disabled = true;
+
+                // Get form values
+                const participantName = document.getElementById('participant-name').value.trim();
+                const collegeName = document.getElementById('college-name').value.trim();
+
+                // Validate fields
+                if (!participantName || !collegeName) {
+                    throw new Error("Please fill in both Participant Name and College Name.");
+                }
+
+                // Check existing submission
+                if (localStorage.getItem('quizSubmitted') === 'true') {
+                    throw new Error("You have already submitted the quiz.");
+                }
+
+                // Validate answers
+                const selectedOptions = document.querySelectorAll('input[type="radio"]:checked');
+                if (selectedOptions.length < 3) {
+                    throw new Error("Please answer all questions.");
+                }
+
+                // Calculate points
+                let totalPoints = 0;
+                selectedOptions.forEach(option => {
+                    totalPoints += parseInt(option.value);
                 });
 
-                const result = await response.json();
-                console.log("SheetDB Response:", result);
+                // Minimum 5-second loading time
+                const [apiResponse] = await Promise.all([
+                    fetch('https://sheetdb.io/api/v1/cimi40ommr2mv', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            data: [{
+                                Name: participantName,
+                                College: collegeName,
+                                "Total Points": totalPoints
+                            }]
+                        }),
+                    }),
+                    new Promise(resolve => setTimeout(resolve, 5000)) // 5-second delay
+                ]);
+
+                const result = await apiResponse.json();
 
                 if (result.created === 1) {
                     localStorage.setItem('quizSubmitted', 'true');
                     statusDiv.textContent = "Quiz submitted successfully! Total Points: " + totalPoints;
-                    document.querySelector('.submit-btn').disabled = true;
                 } else {
-                    errorDiv.textContent = "Error: " + (result.error || "Failed to save results");
+                    throw new Error(result.error || "Failed to save results");
                 }
             } catch (error) {
                 console.error("Error:", error);
-                errorDiv.textContent = "Failed to submit. Please try again.";
+                errorDiv.textContent = error.message;
+                submitBtn.disabled = false;
+            } finally {
+                loadingOverlay.style.display = 'none';
             }
         }
     </script>
